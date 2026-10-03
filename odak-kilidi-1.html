@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Odak Kilidi</title>
+<style>
+:root{--bg:#fff;--fg:#111;--mut:#666;--card:#f1f1f1;--acc:#111;--accfg:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121212;--fg:#f2f2f2;--mut:#aaa;--card:#222;--acc:#f2f2f2;--accfg:#111}}
+:root[data-theme="dark"]{--bg:#121212;--fg:#f2f2f2;--mut:#aaa;--card:#222;--acc:#f2f2f2;--accfg:#111}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+[hidden]{display:none!important}
+.screen{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:24px;text-align:center}
+h1{margin:0;font-size:28px}
+p{margin:0;color:var(--mut);font-size:14px;max-width:320px}
+input{width:200px;font-size:32px;text-align:center;padding:12px;border-radius:14px;border:2px solid var(--card);background:var(--card);color:var(--fg)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.chip{border:0;background:var(--card);color:var(--fg);padding:10px 16px;border-radius:20px;font-size:15px}
+button.main{border:0;background:var(--acc);color:var(--accfg);font-size:20px;font-weight:600;padding:16px 40px;border-radius:16px}
+#lock{position:fixed;inset:0;background:#000;color:#fff;z-index:10;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+#lock .ico{font-size:96px}
+#time{font-size:52px;font-variant-numeric:tabular-nums;font-weight:300}
+#hint{color:#888;font-size:13px}
+#sos{border:0;background:#c62828;color:#fff;font-size:18px;font-weight:700;padding:16px 36px;border-radius:16px;margin-top:24px}
+</style>
+</head>
+<body>
+
+<div id="setup" class="screen">
+  <h1>Odak Kilidi</h1>
+  <p>Süreyi gir, kilitle. Süre bitene kadar sadece ACİL DURUM butonu açar.</p>
+  <input id="min" type="number" inputmode="numeric" min="1" placeholder="dk" value="30">
+  <div class="chips">
+    <button class="chip" data-m="15">15 dk</button>
+    <button class="chip" data-m="30">30 dk</button>
+    <button class="chip" data-m="60">1 sa</button>
+    <button class="chip" data-m="120">2 sa</button>
+  </div>
+  <button class="main" id="go">KİLİTLE</button>
+</div>
+
+<div id="lock" class="screen" hidden>
+  <div class="ico">🔒</div>
+  <div id="time">00:00:00</div>
+  <div id="hint">Tam ekran için ekrana dokun</div>
+  <button id="sos">ACİL DURUM</button>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let end = 0, timer = null, wl = null;
+
+function save(k, v){ try{ v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); }catch(e){} }
+function read(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+
+async function goFull(){
+  try{ if(!document.fullscreenElement) await document.documentElement.requestFullscreen({navigationUI:'hide'}); }catch(e){}
+  updateHint();
+}
+async function wake(){
+  try{ if(navigator.wakeLock && !wl) { wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => wl = null); } }catch(e){}
+}
+function updateHint(){ $('hint').style.visibility = document.fullscreenElement ? 'hidden' : 'visible'; }
+
+function lock(e){
+  end = e; save('end', e);
+  $('setup').hidden = true; $('lock').hidden = false;
+  history.pushState({l:1}, '');
+  tick(); clearInterval(timer); timer = setInterval(tick, 500);
+  goFull(); wake();
+}
+function tick(){
+  const ms = end - Date.now();
+  if(ms <= 0){ unlock(); return; }
+  const s = Math.ceil(ms / 1000), p = n => String(n).padStart(2, '0');
+  $('time').textContent = p(Math.floor(s/3600)) + ':' + p(Math.floor(s%3600/60)) + ':' + p(s%60);
+}
+function unlock(){
+  clearInterval(timer); end = 0; save('end', null);
+  if(document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if(wl){ wl.release().catch(() => {}); wl = null; }
+  $('lock').hidden = true; $('setup').hidden = false;
+}
+const locked = () => end > Date.now();
+
+$('go').onclick = () => {
+  const m = parseInt($('min').value, 10);
+  if(!m || m < 1){ $('min').focus(); return; }
+  lock(Date.now() + m * 60000);
+};
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => $('min').value = c.dataset.m);
+$('sos').onclick = e => { e.stopPropagation(); unlock(); };
+$('lock').addEventListener('click', goFull);
+
+// Geri tuşunu ve sayfadan çıkmayı engelle
+window.addEventListener('popstate', () => { if(locked()) history.pushState({l:1}, ''); });
+window.addEventListener('beforeunload', e => { if(locked()){ e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('fullscreenchange', updateHint);
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible' && locked()) wake(); });
+document.addEventListener('contextmenu', e => { if(locked()) e.preventDefault(); });
+
+// Sayfa yenilense / tekrar açılsa süre bitmediyse kilit geri gelir
+const saved = parseInt(read('end'), 10);
+if(saved > Date.now()) lock(saved);
+</script>
+</body>
+</html>
